@@ -1,4 +1,4 @@
-[Readme-.md](https://github.com/user-attachments/files/35329221/Readme-.md)
+
 # Context-Aware AI Note Summarizer & Automated Data Logging Pipeline
 
 An end-to-end automated data pipeline built with **n8n**, **LLMs (Google Gemini)**, **JavaScript**, **MySQL**, and the **Telegram Bot API**. This system converts unstructured, messy field notes, meeting dumps, and incident logs into structured, context-aware summaries while simultaneously logging quantitative text-compression and urgency metrics into a relational database for downstream analytics.
