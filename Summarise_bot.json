@@ -1,0 +1,249 @@
+{
+  "name": "Summarise_bot",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        0
+      ],
+      "id": "1c85ed69-07ac-4b1a-b7a1-93aa4aa1d7ac",
+      "name": "Telegram Trigger",
+      "webhookId": "9bc56087-e684-4cad-8524-ff89868c0726",
+      "credentials": {
+        "telegramApi": {
+          "id": "0Jo61kcMef180uXt",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $input.first().json.message || {};\nconst text = msg.text || \"\";\n\nlet context = \"General Notes\";\nlet rawNotes = text;\n\nconst contextMatch = text.match(/Context:\\s*(.+)/i);\nconst notesMatch = text.match(/Notes:\\s*([\\s\\S]+)/i);\n\nif (contextMatch) context = contextMatch[1].trim();\nif (notesMatch) rawNotes = notesMatch[1].trim();\n\nconst rawWordCount = rawNotes.split(/\\s+/).filter(Boolean).length;\n\nreturn [{\n  json: {\n    chat_id: msg.chat?.id || \"\",\n    context,\n    raw_notes: rawNotes,\n    raw_word_count: rawWordCount\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "81a2ab90-3567-4a6d-ba4e-f31d1259561f",
+      "name": "Parse Input"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a context-aware technical editor and data structurer.\nContext: {{ $json.context }}\nRaw Messy Notes: {{ $json.raw_notes }}\n\nRules:\n1. Rewrite the messy notes into a clean, high-readability summary tailored specifically to the given Context using clear headings and bullet points. Do not invent facts not present in the notes.\n2. Extract structured metadata.\n\nReturn ONLY valid JSON in this exact format:\n{\n  \"clean_summary\": \"string\",\n  \"urgency\": \"Low | Medium | High\",\n  \"action_items_count\": 0\n}",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        448,
+        0
+      ],
+      "id": "d58d78ef-6335-4847-bf90-6bda0a38e225",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        384,
+        208
+      ],
+      "id": "3dd57435-c0fc-47fc-8bc0-5957c593f7ee",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "Mrb7E1i1XxqcKHNf",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Parse Input').first().json;\nlet llmText = $input.first().json.text || $input.first().json.output || \"\";\n\nllmText = llmText.replace(/```json\\s*/gi, \"\").replace(/```\\s*/g, \"\").trim();\n\nconst parsed = JSON.parse(llmText);\nconst cleanSummary = parsed.clean_summary || \"\";\nconst summaryWordCount = cleanSummary.split(/\\s+/).filter(Boolean).length;\n\nreturn [{\n  json: {\n    chat_id: prev.chat_id,\n    context_type: prev.context,\n    urgency: parsed.urgency || \"Medium\",\n    action_items_count: Number(parsed.action_items_count) || 0,\n    raw_word_count: prev.raw_word_count,\n    summary_word_count: summaryWordCount,\n    clean_summary: cleanSummary\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        816,
+        0
+      ],
+      "id": "61ba7e72-792e-4c1e-9d3f-e93bae682f81",
+      "name": "Format Metrices"
+    },
+    {
+      "parameters": {
+        "table": {
+          "__rl": true,
+          "value": "summarized_notes",
+          "mode": "list",
+          "cachedResultName": "summarized_notes"
+        },
+        "dataMode": "defineBelow",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "=context_type",
+              "value": "={{ $json.context_type }}"
+            },
+            {
+              "column": "urgency",
+              "value": "={{ $json.urgency }}"
+            },
+            {
+              "column": "action_items_count",
+              "value": "={{ $json.action_items_count }}"
+            },
+            {
+              "column": "raw_word_count",
+              "value": "={{ $json.raw_word_count }}"
+            },
+            {
+              "column": "summary_word_count",
+              "value": "={{ $json.summary_word_count }}"
+            },
+            {
+              "column": "clean_summary",
+              "value": "={{ $json.clean_summary }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        1008,
+        0
+      ],
+      "id": "c1f96d04-dd14-4dfd-a0ef-d182319f0caa",
+      "name": "Insert rows in a table",
+      "credentials": {
+        "mySql": {
+          "id": "CKr3zdDlCjd0HYX1",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Format Metrices').item.json.chat_id }}",
+        "text": "={{ $('Format Metrices').item.json.clean_summary.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/^#{1,3}\\s*(.+)$/gm, '<b>$1</b>').replace(/\\*\\*(.+?)\\*\\*/g, '<b>$1</b>').slice(0, 4000) }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1232,
+        0
+      ],
+      "id": "e85f2e35-257d-401f-a110-4955ebbeb9dc",
+      "name": "Send a text message",
+      "webhookId": "2402e267-fc5c-4bca-bf13-43a73d939809",
+      "credentials": {
+        "telegramApi": {
+          "id": "0Jo61kcMef180uXt",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Input": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Format Metrices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Metrices": {
+      "main": [
+        [
+          {
+            "node": "Insert rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert rows in a table": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "3c6065ec-4dbc-4d5d-8d65-3ff5a4976c49",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f656098425af38ab39e15e9e8856897adbc9262cc22d52d7f54ceb9bc535d26b"
+  },
+  "nodeGroups": [],
+  "id": "ifN7UTUTkX7k0AkD",
+  "tags": []
+}
